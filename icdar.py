@@ -694,12 +694,22 @@ def generator_original(input_size=512, batch_size=32,
                             poly, facecolor='none', edgecolor='green', linewidth=2, linestyle='-', fill=True))
                         axs[0, 0].text(poly[0, 0], poly[0, 1], '{:.0f}-{:.0f}'.format(poly_h, poly_w), color='purple')
                     axs[0, 1].imshow(score_map[::, ::])
+                    axs[0, 1].set_xticks([])
+                    axs[0, 1].set_yticks([])
                     axs[1, 0].imshow(geo_map[::, ::, 0])
+                    axs[1, 0].set_xticks([])
+                    axs[1, 0].set_yticks([])
                     axs[1, 1].imshow(geo_map[::, ::, 1])
+                    axs[1, 1].set_xticks([])
+                    axs[1, 1].set_yticks([])
                     axs[2, 0].imshow(geo_map[::, ::, 2])
+                    axs[2, 0].set_xticks([])
+                    axs[2, 0].set_yticks([])
                     axs[2, 1].imshow(training_mask[::, ::])
-                    save_path = os.path.join("..temp",str(uuid.uuid4())+".pdf")
-                    plt.savefig("../temp",dpi=300)
+                    axs[2, 1].set_xticks([])
+                    axs[2, 1].set_yticks([])
+                    save_path = os.path.join("../temp",str(uuid.uuid4())+".pdf")
+                    plt.savefig(save_path,dpi=300)
                     plt.close()
                     
 
@@ -723,10 +733,10 @@ def generator_original(input_size=512, batch_size=32,
 
 
 
-def generator_maxsize(input_size=512, batch_size=32,
-              background_ratio=3./8,
-              random_scale=np.array([0.5, 1, 2.0, 3.0]),
-              vis=True):
+def generator_maxsize(input_size=None, batch_size=None,
+              background_ratio=None,
+              random_scale=None,
+              vis=False):
     image_list = np.array(get_images())
     print('{} training images in {}'.format(
         image_list.shape[0], FLAGS.training_data_path))
@@ -768,7 +778,6 @@ def generator_maxsize(input_size=512, batch_size=32,
                 new_h, new_w, _ = im.shape
                 score_map, geo_map, training_mask = generate_rbox((new_h, new_w), text_polys, text_tags)
                 
-                vis=False
                 if vis:
                     fig, axs = plt.subplots(3, 2, figsize=(20, 30))
                     # axs[0].imshow(im[:, :, ::-1])
@@ -794,21 +803,14 @@ def generator_maxsize(input_size=512, batch_size=32,
                             poly, facecolor='none', edgecolor='green', linewidth=2, linestyle='-', fill=True))
                         axs[0, 0].text(poly[0, 0], poly[0, 1], '{:.0f}-{:.0f}'.format(poly_h, poly_w), color='purple')
                     axs[0, 1].imshow(score_map[::, ::])
-                    axs[0, 1].set_xticks([])
-                    axs[0, 1].set_yticks([])
                     axs[1, 0].imshow(geo_map[::, ::, 0])
-                    axs[1, 0].set_xticks([])
-                    axs[1, 0].set_yticks([])
                     axs[1, 1].imshow(geo_map[::, ::, 1])
-                    axs[1, 1].set_xticks([])
-                    axs[1, 1].set_yticks([])
                     axs[2, 0].imshow(geo_map[::, ::, 2])
-                    axs[2, 0].set_xticks([])
-                    axs[2, 0].set_yticks([])
                     axs[2, 1].imshow(training_mask[::, ::])
-                    axs[2, 1].set_xticks([])
-                    axs[2, 1].set_yticks([])
                     plt.tight_layout()
+                    save_path = os.path.join("./temp",str(uuid.uuid4())+".pdf")
+                    plt.savefig(save_path,dpi=300)
+                    plt.close()
                     
 
                 images.append(im[:, :, ::-1].astype(np.float32))
