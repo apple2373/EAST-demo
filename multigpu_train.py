@@ -2,6 +2,7 @@ import time
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
+import os
 
 tf.app.flags.DEFINE_integer('input_size', 512, '')
 tf.app.flags.DEFINE_integer('batch_size_per_gpu', 14, '')
@@ -21,6 +22,15 @@ import icdar
 
 FLAGS = tf.app.flags.FLAGS
 
+def gpu_setup(gpu_list):
+    #set up GPUS
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ['CUDA_VISIBLE_DEVICES'] = ""
+    if len(gpu_list) > 0:
+        os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
+    print("gpus",gpu_list)
+
+gpu_setup(FLAGS.gpu_list)
 gpus = list(range(len(FLAGS.gpu_list.split(','))))
 
 
@@ -151,6 +161,7 @@ def main(argv=None):
         start = time.time()
         for step in range(FLAGS.max_steps):
             data = next(data_generator)
+            #from IPython import embed;embed()
             ml, tl, _ = sess.run([model_loss, total_loss, train_op], feed_dict={input_images: data[0],
                                                                                 input_score_maps: data[2],
                                                                                 input_geo_maps: data[3],

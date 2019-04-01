@@ -24,18 +24,19 @@ tf.app.flags.DEFINE_string('training_data_path', '/data/ocr/icdar2015/',
 # tf.app.flags.DEFINE_integer('max_text_size', 800,
 #                             'if the text in the input image is bigger than this, then we resize'
 #                             'the image according to this')
-tf.app.flags.DEFINE_integer('min_text_size', 10,
-                            'if the text size is smaller than this, we ignore it during training')
-tf.app.flags.DEFINE_float('min_crop_side_ratio', 0.1,
-                          'when doing random crop from input image, the'
-                          'min length of min(H, W)')
+# tf.app.flags.DEFINE_integer('min_text_size', 10,
+#                             'if the text size is smaller than this, we ignore it during training')
+# tf.app.flags.DEFINE_float('min_crop_side_ratio', 0.1,
+#                           'when doing random crop from input image, the'
+#                           'min length of min(H, W)')
 tf.app.flags.DEFINE_string('geometry', 'RBOX',
                            'which geometry to generate, RBOX or QUAD')
 
-tf.app.flags.DEFINE_string('prep', 'original','preprocessing method')
 
 FLAGS = tf.app.flags.FLAGS
 
+min_crop_side_ratio = 0.1
+min_text_size = 10
 
 def get_images():
     files = []
@@ -155,7 +156,7 @@ def crop_area(im, polys, tags, crop_background=False, max_tries=50):
         ymax = np.max(yy) - pad_h
         ymin = np.clip(ymin, 0, h-1)
         ymax = np.clip(ymax, 0, h-1)
-        if xmax - xmin < FLAGS.min_crop_side_ratio*w or ymax - ymin < FLAGS.min_crop_side_ratio*h:
+        if xmax - xmin < min_crop_side_ratio*w or ymax - ymin < min_crop_side_ratio*h:
             # area too small
             continue
         if polys.shape[0] != 0:
@@ -486,7 +487,7 @@ def generate_rbox(im_size, polys, tags):
         # if the poly is too small, then ignore it during training
         poly_h = min(np.linalg.norm(poly[0] - poly[3]), np.linalg.norm(poly[1] - poly[2]))
         poly_w = min(np.linalg.norm(poly[0] - poly[1]), np.linalg.norm(poly[2] - poly[3]))
-        if min(poly_h, poly_w) < FLAGS.min_text_size:
+        if min(poly_h, poly_w) < min_text_size:
             cv2.fillPoly(training_mask, poly.astype(np.int32)[np.newaxis, :, :], 0)
         if tag:
             cv2.fillPoly(training_mask, poly.astype(np.int32)[np.newaxis, :, :], 0)
@@ -586,7 +587,7 @@ def generate_rbox(im_size, polys, tags):
 
                     
 
-def generator_original(input_size=512, batch_size=32,
+def generator(input_size=512, batch_size=32,
               background_ratio=3./8,
               random_scale=np.array([0.5, 1, 2.0, 3.0]),
               vis=False):
@@ -694,12 +695,22 @@ def generator_original(input_size=512, batch_size=32,
                             poly, facecolor='none', edgecolor='green', linewidth=2, linestyle='-', fill=True))
                         axs[0, 0].text(poly[0, 0], poly[0, 1], '{:.0f}-{:.0f}'.format(poly_h, poly_w), color='purple')
                     axs[0, 1].imshow(score_map[::, ::])
+                    axs[0, 1].set_xticks([])
+                    axs[0, 1].set_yticks([])
                     axs[1, 0].imshow(geo_map[::, ::, 0])
+                    axs[1, 0].set_xticks([])
+                    axs[1, 0].set_yticks([])
                     axs[1, 1].imshow(geo_map[::, ::, 1])
+                    axs[1, 1].set_xticks([])
+                    axs[1, 1].set_yticks([])
                     axs[2, 0].imshow(geo_map[::, ::, 2])
+                    axs[2, 0].set_xticks([])
+                    axs[2, 0].set_yticks([])
                     axs[2, 1].imshow(training_mask[::, ::])
-                    save_path = os.path.join("..temp",str(uuid.uuid4())+".pdf")
-                    plt.savefig("../temp",dpi=300)
+                    axs[2, 1].set_xticks([])
+                    axs[2, 1].set_yticks([])
+                    plt.tight_layout()
+                    plt.show()
                     plt.close()
                     
 
@@ -722,121 +733,6 @@ def generator_original(input_size=512, batch_size=32,
                 continue
 
 
-
-def generator_maxsize(input_size=512, batch_size=32,
-              background_ratio=3./8,
-              random_scale=np.array([0.5, 1, 2.0, 3.0]),
-              vis=True):
-    image_list = np.array(get_images())
-    print('{} training images in {}'.format(
-        image_list.shape[0], FLAGS.training_data_path))
-    index = np.arange(0, image_list.shape[0])
-    while True:
-        np.random.shuffle(index)
-        images = []
-        image_fns = []
-        score_maps = []
-        geo_maps = []
-        training_masks = []
-        for i in index:
-            try:
-                im_fn = image_list[i]
-                im = cv2.imread(im_fn)
-                #print(im.shape)#(3724, 2667, 3)#it'full size at this moment
-                # print im_fn
-                h, w, _ = im.shape#so this is still a full size
-                txt_fn = im_fn.replace(os.path.basename(im_fn).split('.')[1], 'txt')
-                if not os.path.exists(txt_fn):
-                    print('text file {} does not exists'.format(txt_fn))
-                    continue
-
-                text_polys, text_tags = load_annoataion(txt_fn)
-
-                text_polys, text_tags = check_and_validate_polys(text_polys, text_tags, (h, w))
-                if text_polys.shape[0] == 0:
-                    continue
-                    
-                # resize the image to input size
-                new_h, new_w, _ = im.shape
-                resize_h = 2016
-                resize_w = 1344
-                im = cv2.resize(im, dsize=(resize_w, resize_h))
-                resize_ratio_3_x = resize_w/float(new_w)
-                resize_ratio_3_y = resize_h/float(new_h)
-                text_polys[:, :, 0] *= resize_ratio_3_x
-                text_polys[:, :, 1] *= resize_ratio_3_y
-                new_h, new_w, _ = im.shape
-                score_map, geo_map, training_mask = generate_rbox((new_h, new_w), text_polys, text_tags)
-                
-                vis=False
-                if vis:
-                    fig, axs = plt.subplots(3, 2, figsize=(20, 30))
-                    # axs[0].imshow(im[:, :, ::-1])
-                    # axs[0].set_xticks([])
-                    # axs[0].set_yticks([])
-                    # for poly in text_polys:
-                    #     poly_h = min(abs(poly[3, 1] - poly[0, 1]), abs(poly[2, 1] - poly[1, 1]))
-                    #     poly_w = min(abs(poly[1, 0] - poly[0, 0]), abs(poly[2, 0] - poly[3, 0]))
-                    #     axs[0].add_artist(Patches.Polygon(
-                    #         poly * 4, facecolor='none', edgecolor='green', linewidth=2, linestyle='-', fill=True))
-                    #     axs[0].text(poly[0, 0] * 4, poly[0, 1] * 4, '{:.0f}-{:.0f}'.format(poly_h * 4, poly_w * 4),
-                    #                    color='purple')
-                    # axs[1].imshow(score_map)
-                    # axs[1].set_xticks([])
-                    # axs[1].set_yticks([])
-                    axs[0, 0].imshow(im[:, :, ::-1])
-                    axs[0, 0].set_xticks([])
-                    axs[0, 0].set_yticks([])
-                    for poly in text_polys:
-                        poly_h = min(abs(poly[3, 1] - poly[0, 1]), abs(poly[2, 1] - poly[1, 1]))
-                        poly_w = min(abs(poly[1, 0] - poly[0, 0]), abs(poly[2, 0] - poly[3, 0]))
-                        axs[0, 0].add_artist(Patches.Polygon(
-                            poly, facecolor='none', edgecolor='green', linewidth=2, linestyle='-', fill=True))
-                        axs[0, 0].text(poly[0, 0], poly[0, 1], '{:.0f}-{:.0f}'.format(poly_h, poly_w), color='purple')
-                    axs[0, 1].imshow(score_map[::, ::])
-                    axs[0, 1].set_xticks([])
-                    axs[0, 1].set_yticks([])
-                    axs[1, 0].imshow(geo_map[::, ::, 0])
-                    axs[1, 0].set_xticks([])
-                    axs[1, 0].set_yticks([])
-                    axs[1, 1].imshow(geo_map[::, ::, 1])
-                    axs[1, 1].set_xticks([])
-                    axs[1, 1].set_yticks([])
-                    axs[2, 0].imshow(geo_map[::, ::, 2])
-                    axs[2, 0].set_xticks([])
-                    axs[2, 0].set_yticks([])
-                    axs[2, 1].imshow(training_mask[::, ::])
-                    axs[2, 1].set_xticks([])
-                    axs[2, 1].set_yticks([])
-                    plt.tight_layout()
-                    
-
-                images.append(im[:, :, ::-1].astype(np.float32))
-                image_fns.append(im_fn)
-                score_maps.append(score_map[::4, ::4, np.newaxis].astype(np.float32))
-                geo_maps.append(geo_map[::4, ::4, :].astype(np.float32))
-                training_masks.append(training_mask[::4, ::4, np.newaxis].astype(np.float32))
-
-                if len(images) == batch_size:
-                    yield images, image_fns, score_maps, geo_maps, training_masks
-                    images = []
-                    image_fns = []
-                    score_maps = []
-                    geo_maps = []
-                    training_masks = []
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                continue
-                
-def generator(**kwargs):
-    if FLAGS.prep == "original":
-        return generator_original(**kwargs)
-    if FLAGS.prep == "max":
-        return generator_maxsize(**kwargs)
-    else:
-        raise NotImplementedError()
-                
 def get_batch(num_workers, **kwargs):
     try:
         enqueuer = GeneratorEnqueuer(generator(**kwargs), use_multiprocessing=True)
