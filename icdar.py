@@ -15,6 +15,8 @@ import tensorflow as tf
 
 from data_util import GeneratorEnqueuer
 
+from geo_map_cython_lib import gen_geo_map
+
 import uuid
 
 tf.app.flags.DEFINE_string('training_data_path', '/data/ocr/icdar2015/',
@@ -36,6 +38,8 @@ tf.app.flags.DEFINE_string('prep', 'original','preprocessing method')
 
 FLAGS = tf.app.flags.FLAGS
 
+# FLAGS = lambda:None
+# FLAGS.min_text_size = 10
 
 def get_images():
     files = []
@@ -43,7 +47,6 @@ def get_images():
         files.extend(glob.glob(
             os.path.join(FLAGS.training_data_path, '*.{}'.format(ext))))
     return files
-
 
 def load_annoataion(p):
     '''
@@ -70,7 +73,6 @@ def load_annoataion(p):
                 text_tags.append(False)
         return np.array(text_polys, dtype=np.float32), np.array(text_tags, dtype=np.bool)
 
-
 def polygon_area(poly):
     '''
     compute area of a polygon
@@ -84,7 +86,6 @@ def polygon_area(poly):
         (poly[0][0] - poly[3][0]) * (poly[0][1] + poly[3][1])
     ]
     return np.sum(edge)/2.
-
 
 def check_and_validate_polys(polys, tags, xxx_todo_changeme):
     '''
@@ -463,7 +464,6 @@ def restore_rectangle_rbox(origin, geometry):
 def restore_rectangle(origin, geometry):
     return restore_rectangle_rbox(origin, geometry)
 
-
 def generate_rbox(im_size, polys, tags):
     h, w = im_size
     poly_mask = np.zeros((h, w), dtype=np.uint8)
@@ -482,7 +482,7 @@ def generate_rbox(im_size, polys, tags):
         # score map
         shrinked_poly = shrink_poly(poly.copy(), r).astype(np.int32)[np.newaxis, :, :]
         cv2.fillPoly(score_map, shrinked_poly, 1)
-        cv2.fillPoly(poly_mask, shrinked_poly, poly_idx + 1)
+        cv2.fillPoly(poly_mask, shrinked_poly, 1)
         # if the poly is too small, then ignore it during training
         poly_h = min(np.linalg.norm(poly[0] - poly[3]), np.linalg.norm(poly[1] - poly[2]))
         poly_w = min(np.linalg.norm(poly[0] - poly[1]), np.linalg.norm(poly[2] - poly[3]))
@@ -491,7 +491,7 @@ def generate_rbox(im_size, polys, tags):
         if tag:
             cv2.fillPoly(training_mask, poly.astype(np.int32)[np.newaxis, :, :], 0)
 
-        xy_in_poly = np.argwhere(poly_mask == (poly_idx + 1))
+        xy_in_poly = np.argwhere(poly_mask ==  1)
         # if geometry == 'RBOX':
         # 对任意两个顶点的组合生成一个平行四边形 - generate a parallelogram for any combination of two vertices
         fitted_parallelograms = []
@@ -581,10 +581,147 @@ def generate_rbox(im_size, polys, tags):
             geo_map[y, x, 3] = point_dist_to_line(p3_rect, p0_rect, point)
             # angle
             geo_map[y, x, 4] = rotate_angle
+        poly_mask.fill(0)
     return score_map, geo_map, training_mask
 
 
-                    
+
+def generate_rbox_fast(im_size, polys, tags):
+    h, w = im_size
+    #poly_mask_temp = np.zeros((h, w), dtype=np.uint8)
+    score_map = np.zeros((h, w), dtype=np.uint8)
+    geo_map = np.zeros((h, w, 5), dtype=np.float32)
+    # mask used during traning, to ignore some hard areas
+    training_mask = np.ones((h, w), dtype=np.uint8)
+
+    for poly_idx, poly_tag in enumerate(zip(polys, tags)):
+        poly = poly_tag[0]
+        tag = poly_tag[1]
+
+        r = [None, None, None, None]
+
+        for i in range(4):
+            r[i] = min(np.linalg.norm(poly[i] - poly[(i + 1) % 4]),
+                       np.linalg.norm(poly[i] - poly[(i - 1) % 4]))
+        # score map
+        shrinked_poly = shrink_poly(poly.copy(), r).astype(np.int32)[np.newaxis, :, :]
+        cv2.fillPoly(score_map, shrinked_poly, 1)
+        #cv2.fillPoly(poly_mask_temp, shrinked_poly, 1)
+
+        # if the poly is too small, then ignore it during training
+        poly_h = min(np.linalg.norm(poly[0] - poly[3]), np.linalg.norm(poly[1] - poly[2]))
+        poly_w = min(np.linalg.norm(poly[0] - poly[1]), np.linalg.norm(poly[2] - poly[3]))
+
+        #if fill zero the loss is ignored
+        if min(poly_h, poly_w) < FLAGS.min_text_size:
+            cv2.fillPoly(training_mask, poly.astype(np.int32)[np.newaxis, :, :], 0)
+        if tag:
+            cv2.fillPoly(training_mask, poly.astype(np.int32)[np.newaxis, :, :], 0)
+        
+        #xy_in_poly_ = np.argwhere(poly_mask_temp == 1)
+        xmin,ymin = shrinked_poly[0][0]
+        xmax,ymax = shrinked_poly[0][2]
+        xvalues = np.arange(xmin, xmax+1,1)
+        yvalues = np.arange(ymin, ymax+1,1)
+        xx, yy = np.meshgrid(xvalues, yvalues)
+        xy_in_poly = np.vstack([yy.flatten(),xx.flatten()]).T#argwhere will actually give (y,x) pairs
+        
+        #assert np.array_equal(xy_in_poly,xy_in_poly_)
+        
+        # 对任意两个顶点的组合生成一个平行四边形 - generate a parallelogram for any combination of two vertices
+        fitted_parallelograms = []
+        for i in range(4):
+            p0 = poly[i]
+            p1 = poly[(i + 1) % 4]
+            p2 = poly[(i + 2) % 4]
+            p3 = poly[(i + 3) % 4]
+
+            edge = fit_line([p0[0], p1[0]], [p0[1], p1[1]])
+            backward_edge = fit_line([p0[0], p3[0]], [p0[1], p3[1]])
+            forward_edge = fit_line([p1[0], p2[0]], [p1[1], p2[1]])
+            if point_dist_to_line(p0, p1, p2) > point_dist_to_line(p0, p1, p3):
+                # 平行线经过p2 - parallel lines through p2
+                if edge[1] == 0:
+                    edge_opposite = [1, 0, -p2[0]]
+                else:
+                    edge_opposite = [edge[0], -1, p2[1] - edge[0] * p2[0]]
+            else:
+                # 经过p3 - after p3
+                if edge[1] == 0:
+                    edge_opposite = [1, 0, -p3[0]]
+                else:
+                    edge_opposite = [edge[0], -1, p3[1] - edge[0] * p3[0]]
+            # move forward edge
+            new_p0 = p0
+            new_p1 = p1
+            new_p2 = p2
+            new_p3 = p3
+            new_p2 = line_cross_point(forward_edge, edge_opposite)
+            if point_dist_to_line(p1, new_p2, p0) > point_dist_to_line(p1, new_p2, p3):
+                # across p0
+                if forward_edge[1] == 0:
+                    forward_opposite = [1, 0, -p0[0]]
+                else:
+                    forward_opposite = [forward_edge[0], -1, p0[1] - forward_edge[0] * p0[0]]
+            else:
+                # across p3
+                if forward_edge[1] == 0:
+                    forward_opposite = [1, 0, -p3[0]]
+                else:
+                    forward_opposite = [forward_edge[0], -1, p3[1] - forward_edge[0] * p3[0]]
+            new_p0 = line_cross_point(forward_opposite, edge)
+            new_p3 = line_cross_point(forward_opposite, edge_opposite)
+            fitted_parallelograms.append([new_p0, new_p1, new_p2, new_p3, new_p0])
+            # or move backward edge
+            new_p0 = p0
+            new_p1 = p1
+            new_p2 = p2
+            new_p3 = p3
+            new_p3 = line_cross_point(backward_edge, edge_opposite)
+            if point_dist_to_line(p0, p3, p1) > point_dist_to_line(p0, p3, p2):
+                # across p1
+                if backward_edge[1] == 0:
+                    backward_opposite = [1, 0, -p1[0]]
+                else:
+                    backward_opposite = [backward_edge[0], -1, p1[1] - backward_edge[0] * p1[0]]
+            else:
+                # across p2
+                if backward_edge[1] == 0:
+                    backward_opposite = [1, 0, -p2[0]]
+                else:
+                    backward_opposite = [backward_edge[0], -1, p2[1] - backward_edge[0] * p2[0]]
+            new_p1 = line_cross_point(backward_opposite, edge)
+            new_p2 = line_cross_point(backward_opposite, edge_opposite)
+            fitted_parallelograms.append([new_p0, new_p1, new_p2, new_p3, new_p0])
+        areas = [Polygon(t).area for t in fitted_parallelograms]
+        parallelogram = np.array(fitted_parallelograms[np.argmin(areas)][:-1], dtype=np.float32)
+        # sort this polygon
+        parallelogram_coord_sum = np.sum(parallelogram, axis=1)
+        min_coord_idx = np.argmin(parallelogram_coord_sum)
+        parallelogram = parallelogram[
+            [min_coord_idx, (min_coord_idx + 1) % 4, (min_coord_idx + 2) % 4, (min_coord_idx + 3) % 4]]
+
+        rectange = rectangle_from_parallelogram(parallelogram)
+        rectange, rotate_angle = sort_rectangle(rectange)
+
+        p0_rect, p1_rect, p2_rect, p3_rect = rectange
+        
+        """
+        for y, x in xy_in_poly:
+            point = np.array([x, y], dtype=np.float32)
+            # top
+            geo_map[y, x, 0] = point_dist_to_line(p0_rect, p1_rect, point)
+            # right
+            geo_map[y, x, 1] = point_dist_to_line(p1_rect, p2_rect, point)
+            # down
+            geo_map[y, x, 2] = point_dist_to_line(p2_rect, p3_rect, point)
+            # left
+            geo_map[y, x, 3] = point_dist_to_line(p3_rect, p0_rect, point)
+            # angle
+            geo_map[y, x, 4] = rotate_angle
+        """
+        gen_geo_map.gen_geo_map(geo_map, xy_in_poly, rectange, rotate_angle)
+    return score_map, geo_map, training_mask                    
 
 def generator_original(input_size=512, batch_size=32,
               background_ratio=3./8,
@@ -776,7 +913,7 @@ def generator_maxsize(input_size=None, batch_size=None,
                 text_polys[:, :, 0] *= resize_ratio_3_x
                 text_polys[:, :, 1] *= resize_ratio_3_y
                 new_h, new_w, _ = im.shape
-                score_map, geo_map, training_mask = generate_rbox((new_h, new_w), text_polys, text_tags)
+                score_map, geo_map, training_mask = generate_rbox_fast((new_h, new_w), text_polys, text_tags)
                 
                 if vis:
                     fig, axs = plt.subplots(3, 2, figsize=(20, 30))
