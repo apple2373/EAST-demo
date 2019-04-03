@@ -8,7 +8,9 @@ tf.app.flags.DEFINE_integer('input_size', 512, '')
 tf.app.flags.DEFINE_integer('batch_size_per_gpu', 14, '')
 tf.app.flags.DEFINE_integer('num_readers', 16, '')
 tf.app.flags.DEFINE_float('learning_rate', 0.0001, '')
-tf.app.flags.DEFINE_integer('max_steps', 100000, '')
+tf.app.flags.DEFINE_integer('lr_step', 5000, '')
+tf.app.flags.DEFINE_float('lr_decay', 0.1, '')
+tf.app.flags.DEFINE_integer('max_steps', 10000, '')
 tf.app.flags.DEFINE_float('moving_average_decay', 0.997, '')
 tf.app.flags.DEFINE_string('gpu_list', '1', '')
 tf.app.flags.DEFINE_string('checkpoint_path', '/tmp/east_resnet_v1_50_rbox/', '')
@@ -95,9 +97,11 @@ def main(argv=None):
     input_training_masks = tf.placeholder(tf.float32, shape=[None, None, None, 1], name='input_training_masks')
 
     global_step = tf.get_variable('global_step', [], initializer=tf.constant_initializer(0), trainable=False)
-    learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step, decay_steps=10000, decay_rate=0.94, staircase=True)
+    learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step, decay_steps=FLAGS.lr_step , decay_rate=FLAGS.lr_decay, staircase=True)
+
     # add summary
     tf.summary.scalar('learning_rate', learning_rate)
+    #opt = tf.keras.optimizers.Adam(learning_rate,amsgrad=True)
     opt = tf.train.AdamOptimizer(learning_rate)
     # opt = tf.train.MomentumOptimizer(learning_rate, 0.9)
 

@@ -13,6 +13,11 @@ tf.app.flags.DEFINE_string('gpu_list', '0', '')
 tf.app.flags.DEFINE_string('checkpoint_path', '/tmp/east_icdar2015_resnet_v1_50_rbox/', '')
 tf.app.flags.DEFINE_string('output_dir', '/tmp/ch4_test_images/images/', '')
 tf.app.flags.DEFINE_bool('no_write_images', False, 'do not write images')
+tf.app.flags.DEFINE_float('box_thresh', 0.1, 'threshhold for boxes. here we filter some low score boxes by the average score map, this is different from the orginal paper. this should be low like 0.1 (?)')
+tf.app.flags.DEFINE_float('nms_thresh', 0.2, 'threshold for nms ')
+tf.app.flags.DEFINE_float('score_map_thresh', 0.8, 'threshhold for score map')
+tf.app.flags.DEFINE_integer('max_side_len', 2400, 'limit of max image size to avoid out of memory in gpu. has to be multiply of 32')
+
 
 import model
 from icdar import restore_rectangle
@@ -68,7 +73,7 @@ def resize_image(im, max_side_len=2400):
     return im, (ratio_h, ratio_w)
 
 
-def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_thres=0.2):
+def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_thresh=0.2):
     '''
     restore text boxes from score map and geo map
     :param score_map:
@@ -76,7 +81,7 @@ def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_
     :param timer:
     :param score_map_thresh: threshhold for score map
     :param box_thresh: threshhold for boxes
-    :param nms_thres: threshold for nms
+    :param nms_thresh: threshold for nms
     :return:
     '''
     if len(score_map.shape) == 4:
@@ -97,7 +102,7 @@ def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_
     # nms part
     start = time.time()
     # boxes = nms_locality.nms_locality(boxes.astype(np.float64), nms_thres)
-    boxes = lanms.merge_quadrangle_n9(boxes.astype('float32'), nms_thres)
+    boxes = lanms.merge_quadrangle_n9(boxes.astype('float32'), nms_thresh)
     timer['nms'] = time.time() - start
 
     if boxes.shape[0] == 0:
@@ -109,7 +114,9 @@ def detect(score_map, geo_map, timer, score_map_thresh=0.8, box_thresh=0.1, nms_
         cv2.fillPoly(mask, box[:8].reshape((-1, 4, 2)).astype(np.int32) // 4, 1)
         boxes[i, 8] = cv2.mean(score_map, mask)[0]
     boxes = boxes[boxes[:, 8] > box_thresh]
-
+    
+    print('{} text boxes after nms and box_thresh'.format(len(boxes)))
+    
     return boxes, timer
 
 
@@ -152,17 +159,20 @@ def main(argv=None):
             for im_fn in im_fn_list:
                 im = cv2.imread(im_fn)[:, :, ::-1]
                 start_time = time.time()
-                im_resized, (ratio_h, ratio_w) = resize_image(im)
+                im_resized, (ratio_h, ratio_w) = resize_image(im,max_side_len=FLAGS.max_side_len)
 
                 timer = {'net': 0, 'restore': 0, 'nms': 0}
                 start = time.time()
                 score, geometry = sess.run([f_score, f_geometry], feed_dict={input_images: [im_resized]})
                 timer['net'] = time.time() - start
 
-                boxes, timer = detect(score_map=score, geo_map=geometry, timer=timer)
+                boxes, timer = detect(score_map=score, geo_map=geometry, timer=timer,
+                                      score_map_thresh=FLAGS.score_map_thresh,
+                                      box_thresh=FLAGS.box_thresh,
+                                      nms_thresh=FLAGS.nms_thresh)
                 print('{} : net {:.0f}ms, restore {:.0f}ms, nms {:.0f}ms'.format(
                     im_fn, timer['net']*1000, timer['restore']*1000, timer['nms']*1000))
-
+                                
                 if boxes is not None:
                     boxes = boxes[:, :8].reshape((-1, 4, 2))
                     boxes[:, :, 0] /= ratio_w

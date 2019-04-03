@@ -3,12 +3,12 @@ import numpy as np
 
 from tensorflow.contrib import slim
 
-tf.app.flags.DEFINE_integer('text_scale', 512, '')
+tf.app.flags.DEFINE_integer('text_scale', 512, 'scaling factor for  geo_map. max size of geo_map. the geomap will be between 0 to text_scale ')#
+tf.app.flags.DEFINE_float('cls_loss_scale', 0.01, 'scaling factor for classification loss')
 
 from nets import resnet_v1
 
 FLAGS = tf.app.flags.FLAGS
-
 
 def unpool(inputs):
     return tf.image.resize_bilinear(inputs, size=[tf.shape(inputs)[1]*2,  tf.shape(inputs)[2]*2])
@@ -120,7 +120,7 @@ def loss(y_true_cls, y_pred_cls,
     '''
     classification_loss = dice_coefficient(y_true_cls, y_pred_cls, training_mask)
     # scale classification loss to match the iou loss part
-    classification_loss *= 0.01
+    classification_loss *= FLAGS.cls_loss_scale
 
     # d1 -> top, d2->right, d3->bottom, d4->left
     d1_gt, d2_gt, d3_gt, d4_gt, theta_gt = tf.split(value=y_true_geo, num_or_size_splits=5, axis=3)
