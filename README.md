@@ -27,6 +27,7 @@ and
 cd ./lanms
 make
 ```
+- note: I had to upgrade gcc to version 6 or higher. I used gcc 8.3 and worked.
 
 # Restore Weights
 ```
