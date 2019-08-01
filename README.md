@@ -37,6 +37,6 @@ unzip weights.zip
 
 # Run
 I've included demo images from kokumin, and models trained wituhout kokumin. Here's the command to use. 
-```
-python demo.py --test_data_path=./data/east_char_test_subset --resume=./data/weights/model.ckpt-9091 -output_dir=./data/outputs/  --gpu_list=0  --max_side_len 3200
+to```
+python demo.py --test_data_path=./data/kokumin_subset --resume=./data/weights/model.ckpt-9091 -output_dir=./data/outputs/  --gpu_list=0  --max_side_len 3200
 ```
