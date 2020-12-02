@@ -1,8 +1,10 @@
 # EAST-demo
 
 - This is copied and modified from https://github.com/argman/EAST
-
-
+- No training code included in this repository. 
+- This is just to run inference based on a trained model with the original resolution of 512x512 cropped images.
+- I just wanted to show a proof-of-concept to demonstrate the merit of high-resolution images for character detection. 
+- see 
 
 # Requirements
 - Python 3. I'm using Python 3.6.5. 
@@ -37,9 +39,7 @@ unzip weights.zip
 ```
 
 # Run
-I've included demo images from kokumin, and models trained wituhout kokumin. Here's the command to use. 
-to
-
+I've included demo images from kokumin, and models trained wituhout kokumin. Here's a command to use. 
 ```
 python demo.py --test_data_path=./data/kokumin_subset --resume=./data/weights/model.ckpt-9091 -output_dir=./data/outputs/  --gpu_list=0  --max_side_len 3200
 ```
