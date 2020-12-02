@@ -4,7 +4,8 @@
 - No training code included in this repository. 
 - This is just to run inference based on a trained model with the original resolution of 512x512 cropped images.
 - I just wanted to show a proof-of-concept to demonstrate the merit of high-resolution images for character detection. 
-- see 
+- see [samples](./data/outputs-demo/show.md)
+- The below is how to use the model. 
 
 # Requirements
 - Python 3. I'm using Python 3.6.5. 
